@@ -1,0 +1,153 @@
+name: validate
+
+# Runs on pull requests. No DB access: this is static validation + a deploy
+# plan PR comment. We deliberately do NOT call it "SQL syntax check" because
+# without a database connection that would be misleading.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'db/**'
+      - 'apex/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-validation:
+    name: Static validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Lint workflow YAML (actionlint)
+        uses: raven-actions/actionlint@v2
+        with:
+          fail-on-error: true
+
+      - name: ShellCheck on inline shell snippets
+        run: |
+          # Lint any shell scripts in scripts/ if present
+          if ls scripts/*.sh >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y shellcheck
+            shellcheck scripts/*.sh
+          else
+            echo "No shell scripts in scripts/ -- skipping shellcheck."
+          fi
+
+      - name: SQL hygiene -- WHENEVER SQLERROR EXIT present
+        run: |
+          set -e
+          missing=0
+          for f in scripts/deploy.sql scripts/verify.sql; do
+            if ! grep -q "WHENEVER SQLERROR EXIT" "$f"; then
+              echo "::error file=$f::Missing 'WHENEVER SQLERROR EXIT' directive -- pipeline could silently swallow SQL errors."
+              missing=1
+            fi
+          done
+          if [ "$missing" -eq 1 ]; then exit 1; fi
+          echo "OK: all entry-point SQL scripts have WHENEVER SQLERROR EXIT."
+
+      - name: SQL hygiene -- migration numbering
+        run: |
+          set -e
+          cd db/migrations
+          prev=1   # migrations start at 002 (001 is in schema/)
+          for f in $(ls -1 [0-9][0-9][0-9]_*.sql | sort); do
+            n=$(echo "$f" | cut -c1-3 | sed 's/^0*//')
+            expected=$((prev + 1))
+            if [ "$n" -ne "$expected" ]; then
+              echo "::error file=db/migrations/$f::Expected migration number $expected, found $n. Migration numbers must be sequential with no gaps."
+              exit 1
+            fi
+            prev=$n
+          done
+          echo "OK: migration numbering is sequential."
+
+      - name: Security -- block wallet/secret files in PR
+        run: |
+          set -e
+          # Find any staged files that look like wallet artifacts
+          forbidden=$(git ls-tree -r --name-only HEAD | grep -E '(\.sso$|\.p12$|\.jks$|^wallet/|cwallet\.|ewallet\.|Wallet_.*\.zip$|^sqlcl/)' || true)
+          if [ -n "$forbidden" ]; then
+            echo "::error::Wallet/secret files committed -- this is a security violation:"
+            echo "$forbidden"
+            exit 1
+          fi
+          echo "OK: no wallet or secret files committed."
+
+      - name: Security -- no hardcoded passwords
+        run: |
+          set -e
+          # Simple heuristic: look for password=... patterns in SQL/YAML/shell files
+          if git ls-tree -r --name-only HEAD \
+              | grep -E '\.(sql|yml|yaml|sh)$' \
+              | xargs grep -InE '(password|passwd|pwd)\s*[:=]\s*["'\'']?[A-Za-z0-9_]{6,}' 2>/dev/null \
+              | grep -v -E '(secrets\.|\$\{|<.*>|YOUR_|PASSWORD_HERE|example|REPLACE_)' ; then
+            echo "::error::Possible hardcoded password detected -- use secrets instead."
+            exit 1
+          fi
+          echo "OK: no obvious hardcoded passwords."
+
+      - name: Generate deploy plan
+        id: plan
+        run: |
+          set -e
+          {
+            echo "## 🚀 Deploy plan for this PR"
+            echo
+            echo "After merge to \`main\`, the **deploy-dev** job will run with environment \`development\`."
+            echo "After a GitHub Release is published, the **deploy-prod** job will run with environment \`production\` (requires reviewer)."
+            echo
+            echo "### Files in this PR that affect deployment"
+            echo
+            echo '```'
+            git diff --name-only origin/${{ github.base_ref }}...HEAD -- db/ apex/ scripts/ || true
+            echo '```'
+            echo
+            echo "### Execution order (deploy.yml)"
+            echo
+            echo "1. Set up Java 17 (Temurin)"
+            echo "2. Restore cached SQLcl (pinned version)"
+            echo "3. Decode \`OCI_WALLET_B64\` → \`wallet/\` → \`chmod 600\`"
+            echo "4. \`sql @scripts/deploy.sql\` → applies \`db/install.sql\` → migrations recorded in \`schema_migrations\`"
+            echo "5. \`sql apex import -applicationid 100 -workspacename DEMO -file apex/f100.sql\`"
+            echo "6. \`sql @scripts/verify.sql\` → smoke verification"
+            echo "7. Wallet cleanup (\`if: always()\`)"
+            echo
+            echo "### Static checks passed"
+            echo
+            echo "- ✅ Workflow YAML lints clean"
+            echo "- ✅ All SQL entry points have \`WHENEVER SQLERROR EXIT\`"
+            echo "- ✅ Migration numbering is sequential"
+            echo "- ✅ No wallet/secret files in tree"
+            echo "- ✅ No obvious hardcoded passwords"
+            echo
+            echo "_Static validation only — no database was contacted. Real schema/import errors will surface in \`deploy-dev\` after merge._"
+          } > /tmp/plan.md
+          echo "plan-file=/tmp/plan.md" >> "$GITHUB_OUTPUT"
+
+      - name: Post deploy plan as PR comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Replace any prior deploy-plan comment so the PR stays clean across pushes.
+          existing=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("## 🚀 Deploy plan")) | .id' \
+            | head -n1 || true)
+          if [ -n "$existing" ]; then
+            gh api -X DELETE "repos/${{ github.repository }}/issues/comments/${existing}" || true
+          fi
+          gh pr comment "$PR_NUMBER" --body-file /tmp/plan.md

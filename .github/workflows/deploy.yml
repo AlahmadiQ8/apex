@@ -1,0 +1,222 @@
+name: deploy
+
+# DEV: every push to main deploys to the development environment.
+# PROD: every published GitHub Release deploys to the production environment,
+#       which is gated by a required reviewer.
+#
+# Schema migrations run BEFORE apex import (a missing column would cause
+# confusing import-time errors otherwise). All connections use the wallet
+# decoded from OCI_WALLET_B64 (an environment-scoped secret).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'db/**'
+      - 'apex/**'
+      - 'scripts/**'
+      - '.github/workflows/deploy.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - production
+
+permissions:
+  contents: read
+
+env:
+  # Pinned SQLcl version. Bump deliberately, never use 'latest' in CI.
+  SQLCL_VERSION: "24.3.1.311.1631"
+  SQLCL_URL: "https://download.oracle.com/otn_software/java/sqldeveloper/sqlcl-24.3.1.311.1631.zip"
+
+jobs:
+  # =========================================================================
+  # DEV deploy: triggered by push to main or workflow_dispatch -> development
+  # =========================================================================
+  deploy-dev:
+    name: Deploy to development
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'development')
+    runs-on: ubuntu-latest
+    environment:
+      name: development
+    concurrency:
+      group: deploy-development
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache SQLcl
+        id: cache-sqlcl
+        uses: actions/cache@v4
+        with:
+          path: sqlcl
+          key: sqlcl-${{ runner.os }}-${{ env.SQLCL_VERSION }}
+
+      - name: Download SQLcl (pinned version)
+        if: steps.cache-sqlcl.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          curl -fsSL -o sqlcl.zip "${SQLCL_URL}"
+          unzip -q sqlcl.zip && rm sqlcl.zip
+          chmod +x sqlcl/bin/sql
+          sqlcl/bin/sql -V
+
+      - name: Decode wallet
+        env:
+          OCI_WALLET_B64: ${{ secrets.OCI_WALLET_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p wallet
+          printf '%s' "$OCI_WALLET_B64" | base64 --decode > wallet/wallet.zip
+          unzip -q wallet/wallet.zip -d wallet/
+          rm wallet/wallet.zip
+          chmod 600 wallet/*
+          echo "TNS_ADMIN=${GITHUB_WORKSPACE}/wallet" >> "$GITHUB_ENV"
+
+      - name: Deploy database schema and migrations
+        env:
+          DB_USER: ${{ secrets.OCI_DB_USERNAME }}
+          DB_PASS: ${{ secrets.OCI_DB_PASSWORD }}
+          DB_SVC:  ${{ secrets.OCI_DB_SERVICE }}
+        run: |
+          set -euo pipefail
+          cd scripts
+          ../sqlcl/bin/sql -s "${DB_USER}/${DB_PASS}@${DB_SVC}" @deploy.sql
+
+      - name: Import APEX application
+        env:
+          DB_USER: ${{ secrets.OCI_DB_USERNAME }}
+          DB_PASS: ${{ secrets.OCI_DB_PASSWORD }}
+          DB_SVC:  ${{ secrets.OCI_DB_SERVICE }}
+        run: |
+          set -euo pipefail
+          sqlcl/bin/sql -s "${DB_USER}/${DB_PASS}@${DB_SVC}" <<'EOF'
+          WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
+          apex import -applicationid 100 -workspacename DEMO -file apex/f100.sql
+          EXIT 0
+          EOF
+
+      - name: Verify deployment
+        env:
+          DB_USER: ${{ secrets.OCI_DB_USERNAME }}
+          DB_PASS: ${{ secrets.OCI_DB_PASSWORD }}
+          DB_SVC:  ${{ secrets.OCI_DB_SERVICE }}
+        run: |
+          set -euo pipefail
+          sqlcl/bin/sql -s "${DB_USER}/${DB_PASS}@${DB_SVC}" @scripts/verify.sql
+
+      - name: Cleanup wallet
+        if: always()
+        run: rm -rf wallet/
+
+  # =========================================================================
+  # PROD deploy: triggered by GitHub Release (or manual workflow_dispatch).
+  # Environment 'production' requires a reviewer per repository configuration.
+  # =========================================================================
+  deploy-prod:
+    name: Deploy to production
+    if: |
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'production')
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.app-url.outputs.url }}
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Checkout release ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache SQLcl
+        id: cache-sqlcl
+        uses: actions/cache@v4
+        with:
+          path: sqlcl
+          key: sqlcl-${{ runner.os }}-${{ env.SQLCL_VERSION }}
+
+      - name: Download SQLcl (pinned version)
+        if: steps.cache-sqlcl.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          curl -fsSL -o sqlcl.zip "${SQLCL_URL}"
+          unzip -q sqlcl.zip && rm sqlcl.zip
+          chmod +x sqlcl/bin/sql
+
+      - name: Decode wallet
+        env:
+          OCI_WALLET_B64: ${{ secrets.OCI_WALLET_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p wallet
+          printf '%s' "$OCI_WALLET_B64" | base64 --decode > wallet/wallet.zip
+          unzip -q wallet/wallet.zip -d wallet/
+          rm wallet/wallet.zip
+          chmod 600 wallet/*
+          echo "TNS_ADMIN=${GITHUB_WORKSPACE}/wallet" >> "$GITHUB_ENV"
+
+      - name: Deploy database schema and migrations
+        env:
+          DB_USER: ${{ secrets.OCI_DB_USERNAME }}
+          DB_PASS: ${{ secrets.OCI_DB_PASSWORD }}
+          DB_SVC:  ${{ secrets.OCI_DB_SERVICE }}
+        run: |
+          set -euo pipefail
+          cd scripts
+          ../sqlcl/bin/sql -s "${DB_USER}/${DB_PASS}@${DB_SVC}" @deploy.sql
+
+      - name: Import APEX application
+        env:
+          DB_USER: ${{ secrets.OCI_DB_USERNAME }}
+          DB_PASS: ${{ secrets.OCI_DB_PASSWORD }}
+          DB_SVC:  ${{ secrets.OCI_DB_SERVICE }}
+        run: |
+          set -euo pipefail
+          sqlcl/bin/sql -s "${DB_USER}/${DB_PASS}@${DB_SVC}" <<'EOF'
+          WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
+          apex import -applicationid 100 -workspacename DEMO -file apex/f100.sql
+          EXIT 0
+          EOF
+
+      - name: Verify deployment
+        env:
+          DB_USER: ${{ secrets.OCI_DB_USERNAME }}
+          DB_PASS: ${{ secrets.OCI_DB_PASSWORD }}
+          DB_SVC:  ${{ secrets.OCI_DB_SERVICE }}
+        run: |
+          set -euo pipefail
+          sqlcl/bin/sql -s "${DB_USER}/${DB_PASS}@${DB_SVC}" @scripts/verify.sql
+
+      - name: Capture app URL for deployment summary
+        id: app-url
+        if: ${{ vars.APEX_APP_URL != '' }}
+        run: echo "url=${{ vars.APEX_APP_URL }}" >> "$GITHUB_OUTPUT"
+
+      - name: Cleanup wallet
+        if: always()
+        run: rm -rf wallet/

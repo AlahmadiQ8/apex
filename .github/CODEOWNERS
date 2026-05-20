@@ -1,0 +1,10 @@
+# All files in this repo require review by the repo owner.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+*                       @AlahmadiQ8
+
+# Critical paths: explicit owners for visibility
+/.github/workflows/     @AlahmadiQ8
+/db/                    @AlahmadiQ8
+/apex/                  @AlahmadiQ8
+/scripts/               @AlahmadiQ8
