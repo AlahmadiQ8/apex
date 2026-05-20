@@ -18,16 +18,29 @@ One-time setup for the APEX CI/CD demo. Estimated effort: 20–30 minutes.
 
 ## Step 1 — Provision Oracle Autonomous Database (Always Free)
 
+> ⚠️ **CRITICAL: workload type matters.** You **must** pick **Transaction Processing**, not "APEX". The newer "APEX workload type" is a locked-down, browser-only ADB that blocks wallet download and external SQLcl connections — which makes the CI/CD pipeline impossible. The OCI Console even tells you this when you try to download the wallet:
+>
+> > *"This feature is not available for the APEX workload type. To access all Autonomous AI Database features in the OCI Free Tier, we recommend provisioning an Always Free Autonomous AI Transaction Processing instance."*
+>
+> Transaction Processing **already includes** the full APEX stack, so you don't lose anything by picking it.
+
 1. Sign in to the [OCI Console](https://cloud.oracle.com).
 2. **Menu** → **Oracle Database** → **Autonomous Database** → **Create Autonomous Database**.
 3. Settings:
    - Display name: `apex-demo`
    - Database name: `apexdemo`
-   - Workload type: **Transaction Processing** (ATP — includes APEX)
+   - **Workload type: `Transaction Processing` ← do NOT pick "APEX"**
    - ✅ **Always Free**
    - Region: pick one close to you
    - Set **ADMIN password** — save it; you'll need it.
 4. Click **Create**. Provisioning takes ~3 minutes.
+
+### If you already provisioned the wrong workload type
+
+The free tier allows **2 Always Free ADBs**, so you can:
+
+- **Option A (recommended):** keep the APEX-workload instance running for browser-only experiments, and provision a **second** ADB as Transaction Processing for this demo. Workspace, schema, and any APEX apps must be recreated in the new ATP (they don't migrate). It's quick — follow `docs/BUILD_APEX_APP.md` again.
+- **Option B:** terminate the APEX-workload ADB (Console → that ADB → More actions → Terminate) before creating the ATP. The ATP includes the full APEX stack, so you lose no functionality.
 
 ---
 
@@ -275,6 +288,7 @@ Expected outcome:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| **"This feature is not available for the APEX workload type"** when trying to download wallet | Provisioned the wrong workload type — "APEX" instead of Transaction Processing | Provision a new ADB with workload type **Transaction Processing** (see Step 1 warning). Free tier allows 2 Always Free ADBs. |
 | `Wallet decode fails / TLS handshake error` | Wallet was base64-encoded with line wrapping | Re-encode with `base64 -w 0` (GNU) or `base64 -b 0` (BSD), or pipe through `tr -d '\n'` |
 | `Permission denied` on wallet files | Wallet files are world-readable | Workflow already does `chmod 600 wallet/*`; verify it ran |
 | `apex import` fails with `ORA-20000: Workspace DEMO not found` | Workspace not created yet | Complete Step 2 |

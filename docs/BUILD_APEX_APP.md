@@ -25,6 +25,8 @@ If you're under time pressure, skip this and go straight to `docs/SETUP.md` Step
 
 Before you can create an app, the `CF_FEEDBACK` table must exist in `DEMO_SCHEMA`. There are two ways to make that happen:
 
+> ⚠️ **First, confirm your ADB is the right workload type.** If you provisioned an **"APEX" workload type** ADB, you will not be able to download a wallet or run SQLcl externally — that means the CI/CD pipeline won't work at all. You need a **Transaction Processing** workload ADB. See [`docs/SETUP.md` Step 1](SETUP.md#step-1--provision-oracle-autonomous-database-always-free) for the fix. Continue this guide only after you have an ATP-workload instance.
+
 ### Option A — Let the pipeline create it (recommended if you're going through SETUP.md in order)
 
 Skip ahead in `docs/SETUP.md` and complete Steps 3–6 (wallet, secrets, branch protection), then trigger:
