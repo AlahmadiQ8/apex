@@ -64,7 +64,11 @@ jobs:
           set -e
           cd db/migrations
           prev=1   # migrations start at 002 (001 is in schema/)
-          for f in $(ls -1 [0-9][0-9][0-9]_*.sql | sort); do
+          shopt -s nullglob
+          files=( [0-9][0-9][0-9]_*.sql )
+          # Sort the globbed file list deterministically.
+          mapfile -t files < <(printf '%s\n' "${files[@]}" | sort)
+          for f in "${files[@]}"; do
             n=$(echo "$f" | cut -c1-3 | sed 's/^0*//')
             expected=$((prev + 1))
             if [ "$n" -ne "$expected" ]; then
