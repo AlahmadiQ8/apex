@@ -52,6 +52,7 @@ scripts/
 docs/
   RESEARCH.md            # full technical research blueprint
   SETUP.md               # one-time setup (ADB, wallet, secrets, environments)
+  BUILD_APEX_APP.md      # A→Z walkthrough for replacing synthetic f100.sql with a real app
   DEMO_SCRIPT.md         # 15-minute act-by-act speaker notes
 ```
 
@@ -62,7 +63,8 @@ docs/
 If you're here to **run the demo**:
 
 1. Read [`docs/SETUP.md`](docs/SETUP.md) — provision Oracle Autonomous DB Always Free, encode your wallet, configure GitHub Secrets per environment.
-2. Read [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) — 15-minute act-by-act walkthrough.
+2. (Optional) [`docs/BUILD_APEX_APP.md`](docs/BUILD_APEX_APP.md) — build and export a real APEX app to replace the synthetic placeholder.
+3. Read [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) — 15-minute act-by-act walkthrough.
 
 If you're here to **understand the pipeline**:
 

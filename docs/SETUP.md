@@ -45,13 +45,16 @@ One-time setup for the APEX CI/CD demo. Estimated effort: 20–30 minutes.
 
 ### (Optional) Build a real APEX app to replace the synthetic export
 
+> **📖 Full walkthrough:** [`docs/BUILD_APEX_APP.md`](BUILD_APEX_APP.md) — covers all sub-steps with troubleshooting and two export paths (UI vs SQLcl).
+
 ```bash
-# Once the schema/migrations have been applied (you can run deploy.yml first
-# from main once you complete steps 4–6 below):
-#   1. Log in to APEX as DEMO_ADMIN at workspace DEMO.
+# Quick version. See BUILD_APEX_APP.md for the full A-to-Z guide.
+#   1. Sign in to APEX as DEMO_ADMIN at workspace DEMO.
 #   2. App Builder → Create → From a Table → CF_FEEDBACK.
-#   3. Force application id 100 (Settings → Application ID).
-#   4. Run apex export and commit the file:
+#   3. Force application id 100 in Advanced Settings during creation.
+#   4. Either:
+#      a) APEX UI: App Builder → Export → Format SQL → Export → save as apex/f100.sql
+#      b) SQLcl:
 sql DEMO_ADMIN/yourpass@apexdemo_high
 SQL> cd /path/to/this/repo/apex
 SQL> apex export -applicationid 100
