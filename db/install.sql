@@ -30,6 +30,16 @@ BEGIN
 END;
 /
 
+PROMPT ==> [DB] 003_add_category
+@@migrations/003_add_category.sql
+BEGIN
+    MERGE INTO schema_migrations t
+    USING (SELECT '003_add_category' AS version FROM dual) s
+    ON (t.version = s.version)
+    WHEN NOT MATCHED THEN INSERT (version, notes) VALUES (s.version, 'category column on cf_feedback');
+END;
+/
+
 COMMIT;
 
 PROMPT ==> [DB] Applied migrations:
