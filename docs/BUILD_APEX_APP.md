@@ -115,22 +115,28 @@ Then for seed data, paste each INSERT separately, then finally `COMMIT`.
 
 ## Create the application from the table
 
-1. Click **App Builder**.
-2. Click the big **Create** button → **From a Table** → **Next**.
-3. **Choose Table or View**:
-   - Object Type: `Table`
-   - Schema: `DEMO_SCHEMA`
-   - Table: `CF_FEEDBACK`
-   - Click **Next**.
-4. **App definition page** — set:
+> **APEX UI variants:** newer APEX versions show a streamlined "Create an Application" page with a big green "Create Application" button and 6 wizard shortcuts below it (Use Create App Wizard, From a File, Quick SQL, Fusion Integration, Browse Gallery, Copy Existing). The **"From a Table"** option you may see in older docs is now reached **inside** the **Use Create App Wizard**. Use the wizard path below — it works on both layouts.
+
+1. Click **App Builder** → **Create** (top right of the Workspace home).
+2. On the "Create an Application" page:
    - **Name:** `Customer Feedback`
-   - **Appearance:** keep defaults (Vita theme)
-   - Click **Advanced Settings** (chevron at the bottom) to expand.
-5. **In Advanced Settings**:
-   - **Application ID:** `100` ← **important; this is how you force the ID**
+   - **ID:** overwrite the auto-assigned number with `100` (just click and retype). If `100` shows an error like *"Application 100 already exists"*, delete the conflicting app from App Builder first, then retry.
+3. **Do NOT click the big green "Create Application" button** — that creates a blank shell. Instead, click the first option below it: **"Use Create App Wizard"** (icon: pencil + ruler).
+4. The full wizard opens. Re-confirm:
+   - Name: `Customer Feedback`
+   - Application ID: `100`
+5. Scroll to the **Pages** section → **Add Page**.
+   - Page type: **Report with Form** (or "Interactive Report" + add a separate "Form" page)
+   - **Source Type:** Table
+   - **Schema:** `DEMO_SCHEMA`
+   - **Table:** `CF_FEEDBACK`
+   - Accept defaults for the rest → **Add Page**
+6. Expand **Settings** (chevron). Set:
    - **Application Alias:** `feedback`
-   - Leave the rest at defaults
-6. Click **Create Application**. The wizard generates Home, Report, and Form pages on `CF_FEEDBACK`.
+   - Leave other defaults alone.
+7. Click **Create Application** at the bottom of the wizard.
+
+The wizard generates Home, Report, and Form pages on `CF_FEEDBACK`.
 
 > If the form silently uses a different App ID (some APEX versions ignore the override when 100 is already taken in your workspace), see "If App ID 100 is already used" below.
 
@@ -239,6 +245,7 @@ git push origin main
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| The "Create an Application" page shows a green "Create Application" button and 6 shortcuts, but no "From a Table" option | Newer APEX UI variant | "From a Table" is now inside **Use Create App Wizard** (the first shortcut below the green button). The green button creates a blank shell; click the wizard shortcut instead. See "Create the application from the table". |
 | Wizard greys out the Application ID field | Some APEX versions prevent overrides at create time | Create the app with the default ID, then go to **Shared Components → Application Definition → Application ID** and change to `100` — APEX renumbers internal IDs |
 | `ORA-20987: APEX - cannot find application 100` on `apex export` | Wrong workspace context in SQLcl | At the SQLcl prompt: `apex_util.set_security_group_id(9165770663318761);` then retry. Or sign in as the workspace owner. |
 | Exported file is suspiciously small (~200 bytes) | Connected schema can't see the app | Confirm you are connected as a user with access to workspace `DEMO`. Try `ADMIN` instead of `DEMO_ADMIN`. |
