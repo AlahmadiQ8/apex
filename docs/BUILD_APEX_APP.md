@@ -40,11 +40,13 @@ This applies `db/install.sql` against your ADB and creates `CF_FEEDBACK` + the m
 
 ### Option B — Create the table manually right now (fastest if you just want to do this step)
 
-You don't need local SQLcl or the wallet for this. Use the APEX SQL Workshop:
+You don't need local SQLcl or the wallet for this. Use the APEX **SQL Scripts** tool (not "SQL Commands" — SQL Commands only runs one statement at a time and will error with `ORA-00922` on multi-statement input):
 
 1. Sign in to APEX as `DEMO_ADMIN` (workspace `DEMO`) — see "Sign in" below.
-2. Top nav → **SQL Workshop** → **SQL Commands**.
-3. Paste this and click **Run**:
+2. Top nav → **SQL Workshop** → **SQL Scripts**.
+3. Click **Create** (or **Upload**).
+4. Script name: `bootstrap_cf_feedback`
+5. Paste the entire block below into the script body, click **Save**, then click **Run** → **Run Now**:
 
 ```sql
 CREATE TABLE cf_feedback (
@@ -58,11 +60,7 @@ CREATE TABLE cf_feedback (
 
 CREATE INDEX cf_feedback_rating_idx  ON cf_feedback (rating);
 CREATE INDEX cf_feedback_created_idx ON cf_feedback (created_at);
-```
 
-4. Paste this and click **Run** to seed a few rows so the report page has something to show:
-
-```sql
 INSERT INTO cf_feedback (name, email, rating, comments) VALUES ('Ada Lovelace',      'ada@example.com',      5, 'Excellent product!');
 INSERT INTO cf_feedback (name, email, rating, comments) VALUES ('Alan Turing',       'alan@example.com',     4, 'Solid, room for polish.');
 INSERT INTO cf_feedback (name, email, rating, comments) VALUES ('Grace Hopper',      'grace@example.com',    5, 'Saved us hours.');
@@ -71,7 +69,33 @@ INSERT INTO cf_feedback (name, email, rating, comments) VALUES ('Margaret Hamilt
 COMMIT;
 ```
 
-5. Verify: paste `SELECT COUNT(*) FROM cf_feedback;` → should return `5`.
+6. After Run completes, the Results page shows each statement and "Statement processed." for each one.
+7. Verify: SQL Workshop → **SQL Commands** → paste `SELECT COUNT(*) FROM cf_feedback;` and click Run → should return `5`.
+
+#### If you must use SQL Commands instead
+
+SQL Commands runs **one statement at a time** and does not accept trailing `;`. If you prefer it, paste each of these one at a time (no trailing semicolon), clicking Run between each:
+
+```sql
+CREATE TABLE cf_feedback (
+    id         NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name       VARCHAR2(100) NOT NULL,
+    email      VARCHAR2(150),
+    rating     NUMBER(1) NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    comments   VARCHAR2(4000),
+    created_at DATE DEFAULT SYSDATE NOT NULL
+)
+```
+
+```sql
+CREATE INDEX cf_feedback_rating_idx ON cf_feedback (rating)
+```
+
+```sql
+CREATE INDEX cf_feedback_created_idx ON cf_feedback (created_at)
+```
+
+Then for seed data, paste each INSERT separately, then finally `COMMIT`.
 
 > ⚠️ If you take Option B, the pipeline's first deploy will detect the existing table and skip the `CREATE` (because of `ORA-00955` handling). The `schema_migrations` table will be empty, so re-runs may re-attempt; this is harmless because every script is idempotent. After your first successful pipeline run, the migration tracking will be back-filled.
 
